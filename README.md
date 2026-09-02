@@ -10,8 +10,8 @@ so you spend the fewest leave days for the longest breaks.
 1. You enter your country, the year you're planning, how many annual/PTO
    days you have (minus anything already used), and how many days you're
    allowed to carry into next year.
-2. It fetches that country's public holidays for the year from the free
-   [Nager.Date](https://date.nager.at) API.
+2. It fetches that country's holidays from Google's own public "Holidays in
+   `<Country>`" calendar.
 3. It finds every gap between a weekend/holiday and the next weekend/holiday,
    ranks each gap by "days off gained per leave day spent," and greedily
    spends your leave budget on the best gaps first — so a single day off
@@ -32,31 +32,23 @@ browser's `localStorage`. Nothing is sent to a server; there is no backend.
 
 ## Holiday coverage
 
-The Nager.Date API tags many moving-date religious holidays — including most
-Islamic ones — as "Optional" rather than "Public," so the app includes those
-by default (toggle-able). On top of that, in priority order (later sources
-win on a same-date collision):
+Two sources, in priority order (the second wins on a same-date collision):
 
-1. **Nager.Date** — the base layer.
-2. **Estimated Islamic calendar** (opt-in) — Ramadan start, both Eids,
-   Islamic New Year, Ashura, Mawlid, computed from the tabular Hijri
-   calendar. It's a fixed arithmetic approximation, not a moon-sighting
-   authority, so treat it as accurate to within about ±1–2 days and confirm
-   locally before booking anything against it.
-3. **Google's public "Holidays in `<Country>`" calendar** (on by default) —
-   fetched as its `.ics` feed through a free public CORS relay
+1. **Google's public "Holidays in `<Country>`" calendar** — fetched as its
+   `.ics` feed through a free public CORS relay
    ([allorigins.win](https://allorigins.win)), since Google doesn't send the
    CORS headers a browser needs to fetch it directly from another site.
    Best-effort: if the relay or that country's calendar is ever unavailable,
-   it's silently skipped and the plan still works from the other sources.
+   the app says so and the plan just has no holidays until you add your own.
    The same calendar is also embedded directly (an iframe straight from
    google.com) under the holiday table, purely as a visual way to
    cross-check dates yourself — a page can't read data out of another
    site's iframe, so that embed is display-only and isn't part of the data
    pipeline above.
-4. **Holidays you add yourself** — for anything still missing (a confirmed
-   Eid date, a company day, a regional observance). Saved in your browser,
-   always counted.
+2. **Holidays you add yourself** — for anything Google's calendar is missing
+   or gets wrong (a specific Eid date once it's confirmed locally, a company
+   day, a regional observance). Saved in your browser, always counted, and
+   always wins over Google's calendar for the same date.
 
 ## Running it locally
 

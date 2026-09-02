@@ -12,7 +12,7 @@
 <header class="site-header">
   <div class="wrap">
     <h1>🌴 Leave Planner</h1>
-    <p class="tagline">Tell it how many leave days you have — it finds the public holidays from today onward and shows you exactly which days to book for the longest breaks.</p>
+    <p class="tagline">Tell it how many leave days you have — it pulls this country's holidays from Google Calendar and shows you exactly which days to book for the longest breaks.</p>
   </div>
 </header>
 
@@ -25,7 +25,6 @@
         <div class="field">
           <label for="country">Country</label>
           <select id="country" required></select>
-          <p class="hint" id="country-hint"></p>
         </div>
 
         <div class="field">
@@ -90,23 +89,7 @@
         </div>
       </fieldset>
 
-      <label class="checkbox-line">
-        <input type="checkbox" id="include-optional" checked />
-        Include optional / observance holidays, not just official public &amp; bank ones
-        <span class="hint-inline">— many moving-date religious holidays (including most Islamic ones) are tagged this way in the data, so leave this on to see them.</span>
-      </label>
-
-      <label class="checkbox-line">
-        <input type="checkbox" id="use-google-calendar" checked />
-        Also check Google's public holiday calendar for this country
-        <span class="hint-inline">— fetched through a free public CORS relay since Google doesn't allow direct browser access. Best-effort: silently skipped if the relay or that country's calendar is unavailable.</span>
-      </label>
-
-      <label class="checkbox-line">
-        <input type="checkbox" id="estimate-islamic" />
-        Also estimate Islamic holidays still missing after that (Ramadan start, Eid al-Fitr, Eid al-Adha, Islamic New Year, Ashura, Mawlid)
-        <span class="hint-inline">— calculated from the tabular Hijri calendar, accurate to within about ±1–2 days of the moon-sighting-confirmed date. Always double-check locally before booking.</span>
-      </label>
+      <p class="hint">Holidays come from Google's public calendar for the country above, fetched through a free CORS relay since Google doesn't allow direct browser access. If it's ever unavailable for a country, or missing something, add it yourself below.</p>
 
       <button type="submit" class="primary">Plan my leave</button>
     </form>
@@ -114,8 +97,8 @@
   </section>
 
   <section class="card" id="custom-holidays-card">
-    <h2>Add a holiday the data source is missing</h2>
-    <p class="hint">For anything not covered automatically — a specific Eid date once it's confirmed locally, a company day, a regional observance. These are always counted in your plan and saved in this browser.</p>
+    <h2>Add a holiday Google Calendar is missing</h2>
+    <p class="hint">For anything not covered automatically — a specific Eid date once it's confirmed locally, a company day, a regional observance. These always win over Google's calendar if they land on the same date, and are saved in this browser.</p>
     <form id="custom-holiday-form" class="custom-holiday-form">
       <div class="field">
         <label for="custom-holiday-date">Date</label>
@@ -150,7 +133,6 @@
         <tbody></tbody>
       </table>
     </div>
-    <p class="hint" id="regional-note" hidden></p>
     <details class="google-embed">
       <summary>See this country's calendar directly on Google Calendar</summary>
       <p class="hint">This is Google's own widget, loaded straight from google.com — a way to cross-check the dates above yourself, not something this app reads data out of (a page can't read another site's content inside an iframe).</p>
@@ -185,7 +167,7 @@
 
 <footer class="site-footer">
   <div class="wrap">
-    <p>Holiday data from the <a href="https://date.nager.at" target="_blank" rel="noopener">Nager.Date</a> public holiday API. Your settings are saved only in this browser (<code>localStorage</code>) — nothing is sent to a server.</p>
+    <p>Holiday data from <a href="https://calendar.google.com" target="_blank" rel="noopener">Google's public holiday calendars</a>, fetched via a public CORS relay, plus anything you add yourself. Your settings are saved only in this browser (<code>localStorage</code>) — nothing is sent to a server.</p>
   </div>
 </footer>
 

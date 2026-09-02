@@ -1,7 +1,7 @@
 /* Leave Planner — all logic runs in the browser. No backend, no build step.
- * Holiday data: https://date.nager.at (free, no API key, CORS-enabled). */
+ * Holiday data: Google's public "Holidays in <Country>" calendar, plus
+ * whatever you add yourself. */
 
-const API_BASE = "https://date.nager.at/api/v3";
 const STORAGE_KEY = "leave-planner:settings";
 const CUSTOM_HOLIDAYS_KEY = "leave-planner:customHolidays";
 
@@ -9,35 +9,23 @@ const CUSTOM_HOLIDAYS_KEY = "leave-planner:customHolidays";
 // an .ics feed, but it doesn't send CORS headers — a browser can't fetch it
 // directly from a page on another origin. Routed through a free public CORS
 // relay instead. This is best-effort: if the relay or the calendar is
-// unavailable for a given country, it's skipped silently and the plan still
-// works from Nager.Date + your own additions + the estimated Hijri calendar.
+// unavailable for a given country, the app says so and you can add holidays
+// yourself below in the meantime.
 const CORS_PROXY = "https://api.allorigins.win/raw?url=";
 
-// Tabular ("civil") Hijri calendar, used only to *estimate* Islamic holiday
-// dates when the public holiday API has no entry (or the user wants to see
-// them regardless of country). This is a fixed arithmetic approximation —
-// real Islamic dates are set by local moon sighting and can differ by a day
-// or two from what this computes, so results are always labelled "estimated".
-const ISLAMIC_EPOCH_JDN = 1948440;
-const ISLAMIC_EVENTS = [
-  { month: 1, day: 1, name: "Islamic New Year (estimated)" },
-  { month: 1, day: 10, name: "Ashura (estimated)" },
-  { month: 3, day: 12, name: "Mawlid al-Nabi (estimated)" },
-  { month: 9, day: 1, name: "Start of Ramadan (estimated)" },
-  { month: 10, day: 1, name: "Eid al-Fitr (estimated)" },
-  { month: 12, day: 10, name: "Eid al-Adha (estimated)" },
-];
-
-const FALLBACK_COUNTRIES = [
+const COUNTRIES = [
   ["US", "United States"], ["GB", "United Kingdom"], ["CA", "Canada"],
   ["AU", "Australia"], ["NZ", "New Zealand"], ["IE", "Ireland"],
   ["DE", "Germany"], ["FR", "France"], ["ES", "Spain"], ["IT", "Italy"],
   ["NL", "Netherlands"], ["PT", "Portugal"], ["BE", "Belgium"],
   ["CH", "Switzerland"], ["AT", "Austria"], ["SE", "Sweden"],
   ["NO", "Norway"], ["DK", "Denmark"], ["FI", "Finland"], ["PL", "Poland"],
-  ["ZA", "South Africa"], ["NG", "Nigeria"], ["KE", "Kenya"],
+  ["ZA", "South Africa"], ["NG", "Nigeria"], ["KE", "Kenya"], ["GH", "Ghana"],
+  ["EG", "Egypt"], ["MA", "Morocco"], ["ET", "Ethiopia"],
   ["IN", "India"], ["SG", "Singapore"], ["JP", "Japan"], ["BR", "Brazil"],
   ["MX", "Mexico"], ["AR", "Argentina"], ["AE", "United Arab Emirates"],
+  ["SA", "Saudi Arabia"], ["QA", "Qatar"], ["TR", "Turkey"],
+  ["PK", "Pakistan"], ["BD", "Bangladesh"], ["ID", "Indonesia"], ["MY", "Malaysia"],
 ];
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -54,44 +42,6 @@ document.addEventListener("DOMContentLoaded", init);
 
 function pad2(n) {
   return String(n).padStart(2, "0");
-}
-
-function jdnToGregorian(jdn) {
-  const a = jdn + 32044;
-  const b = Math.floor((4 * a + 3) / 146097);
-  const c = a - Math.floor((146097 * b) / 4);
-  const d = Math.floor((4 * c + 3) / 1461);
-  const e = c - Math.floor((1461 * d) / 4);
-  const m = Math.floor((5 * e + 2) / 153);
-  const day = e - Math.floor((153 * m + 2) / 5) + 1;
-  const month = m + 3 - 12 * Math.floor(m / 10);
-  const year = 100 * b + d - 4800 + Math.floor(m / 10);
-  return `${year}-${pad2(month)}-${pad2(day)}`;
-}
-
-function islamicToJDN(year, month, day) {
-  return day + Math.ceil(29.5 * (month - 1)) + (year - 1) * 354 + Math.floor((3 + 11 * year) / 30) + ISLAMIC_EPOCH_JDN - 1;
-}
-
-function estimatedIslamicHolidays(startIso, endIso) {
-  const startYear = Number(startIso.slice(0, 4));
-  const endYear = Number(endIso.slice(0, 4));
-  const results = [];
-  const seen = new Set();
-  for (let gYear = startYear; gYear <= endYear + 1; gYear++) {
-    const hijriEstimate = Math.floor((gYear - 622) * 33 / 32) + 1;
-    for (let hy = hijriEstimate - 1; hy <= hijriEstimate + 1; hy++) {
-      ISLAMIC_EVENTS.forEach((ev) => {
-        const date = jdnToGregorian(islamicToJDN(hy, ev.month, ev.day));
-        const key = date + ev.name;
-        if (date >= startIso && date <= endIso && !seen.has(key)) {
-          seen.add(key);
-          results.push({ date, name: ev.name });
-        }
-      });
-    }
-  }
-  return results;
 }
 
 function readCustomHolidays() {
@@ -135,7 +85,6 @@ function renderCustomHolidayList() {
 
 function init() {
   els.country = document.getElementById("country");
-  els.countryHint = document.getElementById("country-hint");
   els.year = document.getElementById("year");
   els.leaveDays = document.getElementById("leave-days");
   els.alreadyUsed = document.getElementById("already-used");
@@ -146,7 +95,6 @@ function init() {
   els.sickDays = document.getElementById("sick-days");
   els.personalDays = document.getElementById("personal-days");
   els.otherDays = document.getElementById("other-days");
-  els.includeOptional = document.getElementById("include-optional");
   els.form = document.getElementById("setup-form");
   els.status = document.getElementById("status");
   els.summaryCard = document.getElementById("summary-card");
@@ -156,10 +104,7 @@ function init() {
   els.holidaysCard = document.getElementById("holidays-card");
   els.holidaysYearLabel = document.getElementById("holidays-year-label");
   els.holidaysTableBody = document.querySelector("#holidays-table tbody");
-  els.regionalNote = document.getElementById("regional-note");
   els.googleCalendarIframe = document.getElementById("google-calendar-iframe");
-  els.estimateIslamic = document.getElementById("estimate-islamic");
-  els.useGoogleCalendar = document.getElementById("use-google-calendar");
   els.customHolidayForm = document.getElementById("custom-holiday-form");
   els.customHolidayDate = document.getElementById("custom-holiday-date");
   els.customHolidayName = document.getElementById("custom-holiday-name");
@@ -232,28 +177,16 @@ function populateWeekendDays() {
   });
 }
 
-async function populateCountries() {
-  let countries = FALLBACK_COUNTRIES;
-  try {
-    const res = await fetch(`${API_BASE}/AvailableCountries`);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data) && data.length) {
-        countries = data.map((c) => [c.countryCode, c.name]).sort((a, b) => a[1].localeCompare(b[1]));
-      }
-    }
-  } catch (err) {
-    els.countryHint.textContent = "Couldn't reach the holiday API to load the full country list — showing a shorter list.";
-  }
+function populateCountries() {
   els.country.innerHTML = "";
-  countries.forEach(([code, name]) => {
+  COUNTRIES.forEach(([code, name]) => {
     const opt = document.createElement("option");
     opt.value = code;
     opt.textContent = name;
     els.country.appendChild(opt);
   });
   const saved = readSettings();
-  if (saved && countries.some(([code]) => code === saved.country)) {
+  if (saved && COUNTRIES.some(([code]) => code === saved.country)) {
     els.country.value = saved.country;
   } else {
     els.country.value = "US";
@@ -281,9 +214,6 @@ function restoreSettings() {
   if (s.sickDays != null) els.sickDays.value = s.sickDays;
   if (s.personalDays != null) els.personalDays.value = s.personalDays;
   if (s.otherDays != null) els.otherDays.value = s.otherDays;
-  if (s.includeOptional != null) els.includeOptional.checked = s.includeOptional;
-  if (s.estimateIslamic != null) els.estimateIslamic.checked = s.estimateIslamic;
-  if (s.useGoogleCalendar != null) els.useGoogleCalendar.checked = s.useGoogleCalendar;
   if (Array.isArray(s.weekend)) {
     document.querySelectorAll('[data-role="weekend-day"]').forEach((cb) => {
       cb.checked = s.weekend.includes(Number(cb.value));
@@ -321,18 +251,12 @@ async function runPlan() {
   const maxBridge = Number(els.maxBridge.value);
   const maxBreakWorkdays = Math.max(1, Number(els.maxBreakWorkdays.value) || 10);
   const weekend = Array.from(getWeekendSet());
-  const includeOptional = els.includeOptional.checked;
-  const estimateIslamic = els.estimateIslamic.checked;
-  const useGoogleCalendar = els.useGoogleCalendar.checked;
 
   saveSettings({
     country, year, leaveDays, alreadyUsed, carryoverLimit, maxBridge, maxBreakWorkdays, weekend,
     sickDays: Number(els.sickDays.value) || 0,
     personalDays: Number(els.personalDays.value) || 0,
     otherDays: Number(els.otherDays.value) || 0,
-    includeOptional,
-    estimateIslamic,
-    useGoogleCalendar,
   });
 
   const budget = Math.max(0, leaveDays - alreadyUsed);
@@ -341,7 +265,7 @@ async function runPlan() {
   const effectiveStartIso = todayStr > jan1 ? todayStr : jan1;
   const windowEndIso = `${year + 1}-01-31`;
 
-  setStatus(useGoogleCalendar ? "Fetching public holidays…" : "Fetching public holidays (skipping Google's calendar)…");
+  setStatus("Fetching Google's public holiday calendar…");
   els.summaryCard.hidden = true;
   els.planCard.hidden = true;
   els.holidaysCard.hidden = true;
@@ -350,23 +274,12 @@ async function runPlan() {
   selectedDates.clear();
   lastClickedDate = null;
 
-  let holidaysY, holidaysY1, googleHolidays;
-  try {
-    [holidaysY, holidaysY1, googleHolidays] = await Promise.all([
-      fetchHolidays(year, country),
-      fetchHolidays(year + 1, country),
-      useGoogleCalendar ? fetchGoogleHolidayCalendar(country, effectiveStartIso, windowEndIso) : Promise.resolve([]),
-    ]);
-  } catch (err) {
-    setStatus(`Couldn't load public holidays for ${country} ${year}: ${err.message}`, true);
-    return;
-  }
+  const googleHolidays = await fetchGoogleHolidayCalendar(country, effectiveStartIso, windowEndIso);
 
   const weekendSet = new Set(weekend);
   const customHolidays = readCustomHolidays();
   const result = buildPlan({
-    year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional,
-    customHolidays, estimateIslamic, googleHolidays, todayIso: todayStr,
+    year, googleHolidays, weekendSet, budget, maxBridge, maxBreakWorkdays, customHolidays, todayIso: todayStr,
   });
 
   lastResult = result;
@@ -375,25 +288,20 @@ async function runPlan() {
 
   renderSummary({ leaveDays, alreadyUsed, budget, result, carryoverLimit });
   renderPlan(result, country, year);
-  renderHolidays(result.allHolidays, result.regionalHolidays, year, includeOptional, result.effectiveStartIso, country);
+  renderHolidays(result.allHolidays, year, result.effectiveStartIso, country);
   renderCalendar(result);
   updateCalendarSelectionUI();
 
-  setStatus(`Done — ${result.nationwideHolidays.length} public holiday(s) found for ${country} ${year}.`);
+  if (!googleHolidays.length) {
+    setStatus(`Couldn't find Google's holiday calendar for ${country} right now — the relay may be temporarily down, or this country may not have one. Add your own holidays below in the meantime.`, true);
+  } else {
+    setStatus(`Done — ${result.allHolidays.length} holiday(s) found for ${country} ${year}.`);
+  }
 }
 
 function todayIso() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-}
-
-async function fetchHolidays(year, countryCode) {
-  const res = await fetch(`${API_BASE}/PublicHolidays/${year}/${countryCode}`);
-  if (!res.ok) {
-    if (res.status === 404) return [];
-    throw new Error(`API returned ${res.status}`);
-  }
-  return res.json();
 }
 
 function unescapeIcsText(text) {
@@ -432,14 +340,6 @@ async function fetchGoogleHolidayCalendar(countryCode, startIso, endIso) {
   }
 }
 
-function isCountedHoliday(h, includeOptional) {
-  if (!h.types || !h.types.length) return true;
-  const counted = includeOptional
-    ? h.types
-    : h.types.filter((t) => t === "Public" || t === "Bank");
-  return counted.length > 0;
-}
-
 /**
  * Greedily accept the most efficient opportunities first, but two chosen
  * breaks must never touch — if they shared a free-day anchor (e.g. one
@@ -465,44 +365,26 @@ function selectOpportunities(opportunities, budget) {
 
 /**
  * Build a day-off plan.
- * Free days (weekends + counted, nationwide holidays) don't cost leave.
- * A "gap" is a run of consecutive non-free workdays, entirely inside `year`,
- * sitting between two free runs. Taking leave on the whole gap merges the
- * two free runs into one long break.
+ * Free days (weekends + holidays) don't cost leave. A "gap" is a run of
+ * consecutive non-free workdays, entirely inside `year`, sitting between
+ * two free runs. Taking leave on the whole gap merges the two free runs
+ * into one long break.
  */
-function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional, customHolidays, estimateIslamic, googleHolidays, todayIso }) {
-  const nationwideHolidays = [...holidaysY, ...holidaysY1]
-    .filter((h) => !h.counties || h.counties.length === 0)
-    .filter((h) => isCountedHoliday(h, includeOptional));
-  const regionalHolidays = [...holidaysY, ...holidaysY1]
-    .filter((h) => h.counties && h.counties.length > 0)
-    .filter((h) => isCountedHoliday(h, includeOptional))
-    .filter((h) => new Date(h.date + "T12:00:00Z").getUTCFullYear() === year);
-
+function buildPlan({ year, googleHolidays, weekendSet, budget, maxBridge, maxBreakWorkdays, customHolidays, todayIso }) {
   // Never plan or list days before today — only look forward.
   const jan1 = `${year}-01-01`;
   const effectiveStartIso = todayIso > jan1 ? todayIso : jan1;
   const windowEndIso = `${year + 1}-01-31`;
 
-  // Combine the API's holidays with Google's public calendar for the
-  // country, anything the user added themselves, and, if asked, an
-  // estimated Islamic calendar — so a country whose holidays the API tags
-  // as "Optional" or simply doesn't carry still shows up here. Priority on
-  // a date collision: custom (typed deliberately) > google (a real
-  // published calendar) > estimated (a rough calculation) > api (base layer).
-  const apiTagged = nationwideHolidays.map((h) => ({ date: h.date, name: h.localName || h.name, source: "api" }));
-  const estimatedTagged = estimateIslamic
-    ? estimatedIslamicHolidays(effectiveStartIso, windowEndIso).map((h) => ({ ...h, source: "estimated" }))
-    : [];
+  // Google's calendar is the base layer; anything you add yourself always
+  // wins on a same-date collision, since you typed it deliberately.
   const googleTagged = (googleHolidays || []).map((h) => ({ ...h, source: "google" }));
   const customTagged = (customHolidays || [])
     .filter((h) => h.date >= effectiveStartIso && h.date <= windowEndIso)
     .map((h) => ({ date: h.date, name: h.name, source: "custom" }));
-  // One entry per date — a later, higher-priority source in this list
-  // overwrites an earlier one that fell on the same day, rather than both
-  // showing up as separate rows.
+  // One entry per date — custom overwrites google if they land on the same day.
   const holidayMap = new Map();
-  [...apiTagged, ...estimatedTagged, ...googleTagged, ...customTagged].forEach((h) => holidayMap.set(h.date, h));
+  [...googleTagged, ...customTagged].forEach((h) => holidayMap.set(h.date, h));
   const allHolidays = Array.from(holidayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
   const start = new Date(effectiveStartIso + "T12:00:00Z");
@@ -570,13 +452,6 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
   const { chosen, leaveDaysUsed, remaining } = selectOpportunities(opportunities, budget);
 
   return {
-    nationwideHolidays: nationwideHolidays
-      .filter((h) => new Date(h.date + "T12:00:00Z").getUTCFullYear() === year)
-      .filter((h) => h.date >= effectiveStartIso)
-      .sort((a, b) => a.date.localeCompare(b.date)),
-    regionalHolidays: regionalHolidays
-      .filter((h) => h.date >= effectiveStartIso)
-      .sort((a, b) => a.date.localeCompare(b.date)),
     allHolidays: allHolidays.filter((h) => h.date >= effectiveStartIso && h.date.slice(0, 4) === String(year)),
     allHolidaysInWindow: allHolidays.filter((h) => h.date >= effectiveStartIso),
     opportunities,
@@ -664,9 +539,9 @@ function renderPlan(result, country, year) {
   els.planCard.hidden = false;
 }
 
-const SOURCE_LABELS = { api: "Official", google: "Google Calendar", estimated: "Estimated", custom: "Added by you" };
+const SOURCE_LABELS = { google: "Google Calendar", custom: "Added by you" };
 
-function renderHolidays(allHolidays, regional, year, includeOptional, effectiveStartIso, country) {
+function renderHolidays(allHolidays, year, effectiveStartIso, country) {
   const fromToday = effectiveStartIso > `${year}-01-01`;
   els.holidaysYearLabel.textContent = fromToday ? `(${fmtDateShort(effectiveStartIso)} onward)` : `(${year})`;
   els.holidaysTableBody.innerHTML = "";
@@ -680,13 +555,7 @@ function renderHolidays(allHolidays, regional, year, includeOptional, effectiveS
     els.holidaysTableBody.appendChild(tr);
   });
   if (!allHolidays.length) {
-    els.holidaysTableBody.innerHTML = `<tr><td colspan="4">No holidays found for this country and year.</td></tr>`;
-  }
-  if (regional.length) {
-    els.regionalNote.hidden = false;
-    els.regionalNote.textContent = `${regional.length} region-only holiday(s) not counted in the plan above (they don't apply nationwide): ${regional.map((h) => `${h.localName || h.name} (${h.date})`).join(", ")}.`;
-  } else {
-    els.regionalNote.hidden = true;
+    els.holidaysTableBody.innerHTML = `<tr><td colspan="4">No holidays found yet — add your own below, or check the Google Calendar panel underneath.</td></tr>`;
   }
   els.holidaysCard.hidden = false;
 }
