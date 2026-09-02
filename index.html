@@ -12,7 +12,7 @@
 <header class="site-header">
   <div class="wrap">
     <h1>🌴 Leave Planner</h1>
-    <p class="tagline">Tell it how many leave days you have — it finds the public holidays and shows you exactly which days to book for the longest breaks.</p>
+    <p class="tagline">Tell it how many leave days you have — it finds the public holidays from today onward and shows you exactly which days to book for the longest breaks.</p>
   </div>
 </header>
 
@@ -56,6 +56,12 @@
             <option value="4" selected>Up to 4 workdays</option>
             <option value="5">Up to 5 workdays (a full week)</option>
           </select>
+        </div>
+
+        <div class="field">
+          <label for="max-break-workdays">Longest single break you want (working days)</label>
+          <input type="number" id="max-break-workdays" min="1" max="60" step="1" value="10" />
+          <p class="hint">≈ 2 work weeks by default. Caps how long any one recommended break can run — everyone plugging in their own numbers here can set their own limit.</p>
         </div>
       </div>
 

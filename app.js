@@ -31,6 +31,7 @@ function init() {
   els.alreadyUsed = document.getElementById("already-used");
   els.carryoverLimit = document.getElementById("carryover-limit");
   els.maxBridge = document.getElementById("max-bridge");
+  els.maxBreakWorkdays = document.getElementById("max-break-workdays");
   els.weekendDays = document.getElementById("weekend-days");
   els.sickDays = document.getElementById("sick-days");
   els.personalDays = document.getElementById("personal-days");
@@ -131,6 +132,7 @@ function restoreSettings() {
   if (s.alreadyUsed != null) els.alreadyUsed.value = s.alreadyUsed;
   if (s.carryoverLimit != null) els.carryoverLimit.value = s.carryoverLimit;
   if (s.maxBridge != null) els.maxBridge.value = s.maxBridge;
+  if (s.maxBreakWorkdays != null) els.maxBreakWorkdays.value = s.maxBreakWorkdays;
   if (s.sickDays != null) els.sickDays.value = s.sickDays;
   if (s.personalDays != null) els.personalDays.value = s.personalDays;
   if (s.otherDays != null) els.otherDays.value = s.otherDays;
@@ -170,11 +172,12 @@ async function runPlan() {
   const alreadyUsed = Math.max(0, Number(els.alreadyUsed.value) || 0);
   const carryoverLimit = Math.max(0, Number(els.carryoverLimit.value) || 0);
   const maxBridge = Number(els.maxBridge.value);
+  const maxBreakWorkdays = Math.max(1, Number(els.maxBreakWorkdays.value) || 10);
   const weekend = Array.from(getWeekendSet());
   const includeOptional = els.includeOptional.checked;
 
   saveSettings({
-    country, year, leaveDays, alreadyUsed, carryoverLimit, maxBridge, weekend,
+    country, year, leaveDays, alreadyUsed, carryoverLimit, maxBridge, maxBreakWorkdays, weekend,
     sickDays: Number(els.sickDays.value) || 0,
     personalDays: Number(els.personalDays.value) || 0,
     otherDays: Number(els.otherDays.value) || 0,
@@ -201,14 +204,19 @@ async function runPlan() {
 
   const weekendSet = new Set(weekend);
   const result = buildPlan({
-    year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, includeOptional,
+    year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional, todayIso: todayIso(),
   });
 
   renderSummary({ leaveDays, alreadyUsed, budget, result, carryoverLimit });
   renderPlan(result, country, year);
-  renderHolidays(result.nationwideHolidays, result.regionalHolidays, year, includeOptional);
+  renderHolidays(result.nationwideHolidays, result.regionalHolidays, year, includeOptional, result.effectiveStartIso);
 
   setStatus(`Done — ${result.nationwideHolidays.length} public holiday(s) found for ${country} ${year}.`);
+}
+
+function todayIso() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 async function fetchHolidays(year, countryCode) {
@@ -235,7 +243,7 @@ function isCountedHoliday(h, includeOptional) {
  * sitting between two free runs. Taking leave on the whole gap merges the
  * two free runs into one long break.
  */
-function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, includeOptional }) {
+function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional, todayIso }) {
   const nationwideHolidays = [...holidaysY, ...holidaysY1]
     .filter((h) => !h.counties || h.counties.length === 0)
     .filter((h) => isCountedHoliday(h, includeOptional));
@@ -246,7 +254,10 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
 
   const holidayMap = new Map(nationwideHolidays.map((h) => [h.date, h]));
 
-  const start = new Date(Date.UTC(year, 0, 1));
+  // Never plan or list days before today — only look forward.
+  const jan1 = `${year}-01-01`;
+  const effectiveStartIso = todayIso > jan1 ? todayIso : jan1;
+  const start = new Date(effectiveStartIso + "T12:00:00Z");
   const end = new Date(Date.UTC(year + 1, 0, 31));
   const days = [];
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
@@ -262,7 +273,10 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
     });
   }
 
-  // Find opportunities: runs of non-free, in-year days flanked by free days.
+  // Find opportunities: runs of non-free, in-year workdays flanked by free days.
+  // The window itself starts today, so a gap touching index 0 (i.e. today is a
+  // workday) has no leading free run to look back on — that's fine, it's just
+  // treated as 0 leading free days rather than being thrown out.
   const opportunities = [];
   let i = 0;
   while (i < days.length) {
@@ -271,24 +285,31 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
     while (j < days.length && !days[j].free) j++;
     const gap = days.slice(i, j);
     const gapAllInYear = gap.every((d) => d.inYear);
-    const hasLeadingFree = i > 0;
     const hasTrailingFree = j < days.length;
-    if (gapAllInYear && gap.length <= maxBridge && hasLeadingFree && hasTrailingFree) {
-      let leadStart = i - 1;
-      while (leadStart - 1 >= 0 && days[leadStart - 1].free) leadStart--;
+    if (gapAllInYear && gap.length <= maxBridge && hasTrailingFree) {
+      let leadStart = i;
+      if (i > 0) {
+        leadStart = i - 1;
+        while (leadStart - 1 >= 0 && days[leadStart - 1].free) leadStart--;
+      }
       let trailEnd = j;
       while (trailEnd < days.length && days[trailEnd].free) trailEnd++;
       const leadFree = days.slice(leadStart, i);
       const trailFree = days.slice(j, trailEnd);
-      const totalOff = leadFree.length + gap.length + trailFree.length;
+      const fullSpan = [...leadFree, ...gap, ...trailFree];
+      const workdaysAway = fullSpan.filter((d) => !weekendSet.has(d.weekday)).length;
+      if (workdaysAway > maxBreakWorkdays) { i = j; continue; }
+      const totalOff = fullSpan.length;
       opportunities.push({
         gapDates: gap.map((d) => d.date),
-        rangeStart: leadFree[0].date,
-        rangeEnd: trailFree[trailFree.length - 1].date,
+        spanDates: fullSpan.map((d) => d.date),
+        rangeStart: fullSpan[0].date,
+        rangeEnd: fullSpan[fullSpan.length - 1].date,
         leaveDaysNeeded: gap.length,
         totalDaysOff: totalOff,
+        workdaysAway,
         efficiency: totalOff / gap.length,
-        holidayNames: [...leadFree, ...gap, ...trailFree]
+        holidayNames: fullSpan
           .map((d) => d.holidayName)
           .filter(Boolean),
       });
@@ -298,13 +319,21 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
 
   opportunities.sort((a, b) => b.efficiency - a.efficiency || b.totalDaysOff - a.totalDaysOff || a.rangeStart.localeCompare(b.rangeStart));
 
+  // Greedily accept the most efficient opportunities first, but two chosen
+  // breaks must never touch — if they shared a free-day anchor (e.g. one
+  // opportunity's trailing weekend is the next one's leading weekend) taking
+  // both would merge them into one long continuous absence that could blow
+  // past the "longest single break" cap the picks were each checked against
+  // individually.
   let remaining = budget;
+  const claimed = new Set();
   const chosen = [];
   for (const opp of opportunities) {
-    if (opp.leaveDaysNeeded <= remaining) {
-      chosen.push(opp);
-      remaining -= opp.leaveDaysNeeded;
-    }
+    if (opp.leaveDaysNeeded > remaining) continue;
+    if (opp.spanDates.some((d) => claimed.has(d))) continue;
+    chosen.push(opp);
+    remaining -= opp.leaveDaysNeeded;
+    opp.spanDates.forEach((d) => claimed.add(d));
   }
   chosen.sort((a, b) => a.rangeStart.localeCompare(b.rangeStart));
 
@@ -313,13 +342,17 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
   return {
     nationwideHolidays: nationwideHolidays
       .filter((h) => new Date(h.date + "T12:00:00Z").getUTCFullYear() === year)
+      .filter((h) => h.date >= effectiveStartIso)
       .sort((a, b) => a.date.localeCompare(b.date)),
-    regionalHolidays: regionalHolidays.sort((a, b) => a.date.localeCompare(b.date)),
+    regionalHolidays: regionalHolidays
+      .filter((h) => h.date >= effectiveStartIso)
+      .sort((a, b) => a.date.localeCompare(b.date)),
     opportunities,
     chosen,
     budget,
     leaveDaysUsed,
     remaining,
+    effectiveStartIso,
   };
 }
 
@@ -377,7 +410,7 @@ function renderPlan(result, country, year) {
           <span class="badge">${opp.totalDaysOff} days off for ${opp.leaveDaysNeeded} leave day${opp.leaveDaysNeeded > 1 ? "s" : ""}</span>
         </div>
         <p class="take"><strong>Book off:</strong> ${opp.gapDates.map(fmtDate).join(", ")}</p>
-        <p class="anchors">${label}</p>
+        <p class="anchors">${label}${label ? " · " : ""}${opp.workdaysAway} working day${opp.workdaysAway > 1 ? "s" : ""} away from the office</p>
         <div class="actions"><button type="button" class="secondary" data-ics-single>Add to calendar (.ics)</button></div>
       `;
       div.querySelector("[data-ics-single]").addEventListener("click", () => {
@@ -396,8 +429,9 @@ function renderPlan(result, country, year) {
   els.planCard.hidden = false;
 }
 
-function renderHolidays(nationwide, regional, year, includeOptional) {
-  els.holidaysYearLabel.textContent = `(${year})`;
+function renderHolidays(nationwide, regional, year, includeOptional, effectiveStartIso) {
+  const fromToday = effectiveStartIso > `${year}-01-01`;
+  els.holidaysYearLabel.textContent = fromToday ? `(${fmtDateShort(effectiveStartIso)} onward)` : `(${year})`;
   els.holidaysTableBody.innerHTML = "";
   nationwide.forEach((h) => {
     const d = new Date(h.date + "T12:00:00Z");
