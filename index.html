@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leave Planner</title>
+<meta name="description" content="Plan your annual leave around public holidays to get the longest breaks for the fewest days off work." />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌴</text></svg>" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <h1>🌴 Leave Planner</h1>
+    <p class="tagline">Tell it how many leave days you have — it finds the public holidays and shows you exactly which days to book for the longest breaks.</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="card" id="setup-card">
+    <h2>1. Your details</h2>
+    <form id="setup-form">
+      <div class="grid">
+        <div class="field">
+          <label for="country">Country</label>
+          <select id="country" required></select>
+          <p class="hint" id="country-hint"></p>
+        </div>
+
+        <div class="field">
+          <label for="year">Plan for year</label>
+          <select id="year" required></select>
+        </div>
+
+        <div class="field">
+          <label for="leave-days">Annual / PTO days available</label>
+          <input type="number" id="leave-days" min="0" max="365" step="1" value="25" required />
+        </div>
+
+        <div class="field">
+          <label for="already-used">Already booked / used this year</label>
+          <input type="number" id="already-used" min="0" max="365" step="1" value="0" />
+        </div>
+
+        <div class="field">
+          <label for="carryover-limit">Max days you can carry into next year</label>
+          <input type="number" id="carryover-limit" min="0" max="365" step="1" value="5" />
+        </div>
+
+        <div class="field">
+          <label for="max-bridge">Longest gap worth bridging (workdays)</label>
+          <select id="max-bridge">
+            <option value="2">Up to 2 workdays</option>
+            <option value="3">Up to 3 workdays</option>
+            <option value="4" selected>Up to 4 workdays</option>
+            <option value="5">Up to 5 workdays (a full week)</option>
+          </select>
+        </div>
+      </div>
+
+      <fieldset class="field">
+        <legend>Weekend days (already off, no leave needed)</legend>
+        <div class="weekend-days" id="weekend-days">
+          <!-- populated by JS -->
+        </div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Other leave balances <span class="hint-inline">(tracked only — not used for the bridging plan below)</span></legend>
+        <div class="grid grid-4">
+          <div class="field">
+            <label for="sick-days">Sick</label>
+            <input type="number" id="sick-days" min="0" max="365" step="1" value="0" />
+          </div>
+          <div class="field">
+            <label for="personal-days">Personal</label>
+            <input type="number" id="personal-days" min="0" max="365" step="1" value="0" />
+          </div>
+          <div class="field">
+            <label for="other-days">Other</label>
+            <input type="number" id="other-days" min="0" max="365" step="1" value="0" />
+          </div>
+        </div>
+      </fieldset>
+
+      <label class="checkbox-line">
+        <input type="checkbox" id="include-optional" />
+        Include optional / observance holidays (not just public &amp; bank holidays)
+      </label>
+
+      <button type="submit" class="primary">Plan my leave</button>
+    </form>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card" id="summary-card" hidden>
+    <h2>2. Summary</h2>
+    <div class="summary-grid" id="summary-grid"></div>
+  </section>
+
+  <section class="card" id="plan-card" hidden>
+    <h2>3. Recommended leave days</h2>
+    <p class="hint">Ranked by how many days off you get per day of leave spent, then applied to your budget in that order.</p>
+    <div id="plan-list"></div>
+  </section>
+
+  <section class="card" id="holidays-card" hidden>
+    <h2>4. Public holidays <span id="holidays-year-label"></span></h2>
+    <div class="table-wrap">
+      <table id="holidays-table">
+        <thead><tr><th>Date</th><th>Day</th><th>Holiday</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint" id="regional-note" hidden></p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>Holiday data from the <a href="https://date.nager.at" target="_blank" rel="noopener">Nager.Date</a> public holiday API. Your settings are saved only in this browser (<code>localStorage</code>) — nothing is sent to a server.</p>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
