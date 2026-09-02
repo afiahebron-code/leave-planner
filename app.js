@@ -5,6 +5,14 @@ const API_BASE = "https://date.nager.at/api/v3";
 const STORAGE_KEY = "leave-planner:settings";
 const CUSTOM_HOLIDAYS_KEY = "leave-planner:customHolidays";
 
+// Google publishes a public "Holidays in <Country>" calendar per country as
+// an .ics feed, but it doesn't send CORS headers — a browser can't fetch it
+// directly from a page on another origin. Routed through a free public CORS
+// relay instead. This is best-effort: if the relay or the calendar is
+// unavailable for a given country, it's skipped silently and the plan still
+// works from Nager.Date + your own additions + the estimated Hijri calendar.
+const CORS_PROXY = "https://api.allorigins.win/raw?url=";
+
 // Tabular ("civil") Hijri calendar, used only to *estimate* Islamic holiday
 // dates when the public holiday API has no entry (or the user wants to see
 // them regardless of country). This is a fixed arithmetic approximation —
@@ -149,7 +157,9 @@ function init() {
   els.holidaysYearLabel = document.getElementById("holidays-year-label");
   els.holidaysTableBody = document.querySelector("#holidays-table tbody");
   els.regionalNote = document.getElementById("regional-note");
+  els.googleCalendarIframe = document.getElementById("google-calendar-iframe");
   els.estimateIslamic = document.getElementById("estimate-islamic");
+  els.useGoogleCalendar = document.getElementById("use-google-calendar");
   els.customHolidayForm = document.getElementById("custom-holiday-form");
   els.customHolidayDate = document.getElementById("custom-holiday-date");
   els.customHolidayName = document.getElementById("custom-holiday-name");
@@ -273,6 +283,7 @@ function restoreSettings() {
   if (s.otherDays != null) els.otherDays.value = s.otherDays;
   if (s.includeOptional != null) els.includeOptional.checked = s.includeOptional;
   if (s.estimateIslamic != null) els.estimateIslamic.checked = s.estimateIslamic;
+  if (s.useGoogleCalendar != null) els.useGoogleCalendar.checked = s.useGoogleCalendar;
   if (Array.isArray(s.weekend)) {
     document.querySelectorAll('[data-role="weekend-day"]').forEach((cb) => {
       cb.checked = s.weekend.includes(Number(cb.value));
@@ -312,6 +323,7 @@ async function runPlan() {
   const weekend = Array.from(getWeekendSet());
   const includeOptional = els.includeOptional.checked;
   const estimateIslamic = els.estimateIslamic.checked;
+  const useGoogleCalendar = els.useGoogleCalendar.checked;
 
   saveSettings({
     country, year, leaveDays, alreadyUsed, carryoverLimit, maxBridge, maxBreakWorkdays, weekend,
@@ -320,11 +332,16 @@ async function runPlan() {
     otherDays: Number(els.otherDays.value) || 0,
     includeOptional,
     estimateIslamic,
+    useGoogleCalendar,
   });
 
   const budget = Math.max(0, leaveDays - alreadyUsed);
+  const todayStr = todayIso();
+  const jan1 = `${year}-01-01`;
+  const effectiveStartIso = todayStr > jan1 ? todayStr : jan1;
+  const windowEndIso = `${year + 1}-01-31`;
 
-  setStatus("Fetching public holidays…");
+  setStatus(useGoogleCalendar ? "Fetching public holidays…" : "Fetching public holidays (skipping Google's calendar)…");
   els.summaryCard.hidden = true;
   els.planCard.hidden = true;
   els.holidaysCard.hidden = true;
@@ -333,11 +350,12 @@ async function runPlan() {
   selectedDates.clear();
   lastClickedDate = null;
 
-  let holidaysY, holidaysY1;
+  let holidaysY, holidaysY1, googleHolidays;
   try {
-    [holidaysY, holidaysY1] = await Promise.all([
+    [holidaysY, holidaysY1, googleHolidays] = await Promise.all([
       fetchHolidays(year, country),
       fetchHolidays(year + 1, country),
+      useGoogleCalendar ? fetchGoogleHolidayCalendar(country, effectiveStartIso, windowEndIso) : Promise.resolve([]),
     ]);
   } catch (err) {
     setStatus(`Couldn't load public holidays for ${country} ${year}: ${err.message}`, true);
@@ -348,7 +366,7 @@ async function runPlan() {
   const customHolidays = readCustomHolidays();
   const result = buildPlan({
     year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional,
-    customHolidays, estimateIslamic, todayIso: todayIso(),
+    customHolidays, estimateIslamic, googleHolidays, todayIso: todayStr,
   });
 
   lastResult = result;
@@ -357,7 +375,7 @@ async function runPlan() {
 
   renderSummary({ leaveDays, alreadyUsed, budget, result, carryoverLimit });
   renderPlan(result, country, year);
-  renderHolidays(result.allHolidays, result.regionalHolidays, year, includeOptional, result.effectiveStartIso);
+  renderHolidays(result.allHolidays, result.regionalHolidays, year, includeOptional, result.effectiveStartIso, country);
   renderCalendar(result);
   updateCalendarSelectionUI();
 
@@ -376,6 +394,42 @@ async function fetchHolidays(year, countryCode) {
     throw new Error(`API returned ${res.status}`);
   }
   return res.json();
+}
+
+function unescapeIcsText(text) {
+  return text.replace(/\\n/gi, " ").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\\\/g, "\\").trim();
+}
+
+function parseIcsHolidays(icsText, startIso, endIso) {
+  // Unfold RFC 5545 folded lines: a continuation line starts with a single
+  // space or tab, which (together with the line break before it) is removed.
+  const unfolded = icsText.replace(/\r\n/g, "\n").replace(/\n[ \t]/g, "");
+  const blocks = unfolded.split("BEGIN:VEVENT").slice(1);
+  const results = [];
+  blocks.forEach((block) => {
+    const dateMatch = block.match(/\nDTSTART[^:\n]*:(\d{8})/);
+    const nameMatch = block.match(/\nSUMMARY:(.+)/);
+    if (!dateMatch || !nameMatch) return;
+    const raw = dateMatch[1];
+    const date = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+    if (date >= startIso && date <= endIso) {
+      results.push({ date, name: unescapeIcsText(nameMatch[1]) });
+    }
+  });
+  return results;
+}
+
+async function fetchGoogleHolidayCalendar(countryCode, startIso, endIso) {
+  try {
+    const googleUrl = `https://calendar.google.com/calendar/ical/en.${countryCode.toLowerCase()}%23holiday%40group.v.calendar.google.com/public/basic.ics`;
+    const res = await fetch(CORS_PROXY + encodeURIComponent(googleUrl));
+    if (!res.ok) return [];
+    const text = await res.text();
+    if (!text.includes("BEGIN:VEVENT")) return [];
+    return parseIcsHolidays(text, startIso, endIso);
+  } catch (err) {
+    return [];
+  }
 }
 
 function isCountedHoliday(h, includeOptional) {
@@ -416,7 +470,7 @@ function selectOpportunities(opportunities, budget) {
  * sitting between two free runs. Taking leave on the whole gap merges the
  * two free runs into one long break.
  */
-function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional, customHolidays, estimateIslamic, todayIso }) {
+function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge, maxBreakWorkdays, includeOptional, customHolidays, estimateIslamic, googleHolidays, todayIso }) {
   const nationwideHolidays = [...holidaysY, ...holidaysY1]
     .filter((h) => !h.counties || h.counties.length === 0)
     .filter((h) => isCountedHoliday(h, includeOptional));
@@ -430,22 +484,26 @@ function buildPlan({ year, holidaysY, holidaysY1, weekendSet, budget, maxBridge,
   const effectiveStartIso = todayIso > jan1 ? todayIso : jan1;
   const windowEndIso = `${year + 1}-01-31`;
 
-  // Combine the API's holidays with anything the user added themselves and,
-  // if asked, an estimated Islamic calendar — so a country whose holidays
-  // the API tags as "Optional" or simply doesn't carry still shows up here.
-  // Custom entries win on a date collision since the user typed them deliberately.
+  // Combine the API's holidays with Google's public calendar for the
+  // country, anything the user added themselves, and, if asked, an
+  // estimated Islamic calendar — so a country whose holidays the API tags
+  // as "Optional" or simply doesn't carry still shows up here. Priority on
+  // a date collision: custom (typed deliberately) > google (a real
+  // published calendar) > estimated (a rough calculation) > api (base layer).
   const apiTagged = nationwideHolidays.map((h) => ({ date: h.date, name: h.localName || h.name, source: "api" }));
   const estimatedTagged = estimateIslamic
     ? estimatedIslamicHolidays(effectiveStartIso, windowEndIso).map((h) => ({ ...h, source: "estimated" }))
     : [];
+  const googleTagged = (googleHolidays || []).map((h) => ({ ...h, source: "google" }));
   const customTagged = (customHolidays || [])
     .filter((h) => h.date >= effectiveStartIso && h.date <= windowEndIso)
     .map((h) => ({ date: h.date, name: h.name, source: "custom" }));
-  const allHolidays = [...apiTagged, ...estimatedTagged, ...customTagged]
-    .sort((a, b) => a.date.localeCompare(b.date));
-
+  // One entry per date — a later, higher-priority source in this list
+  // overwrites an earlier one that fell on the same day, rather than both
+  // showing up as separate rows.
   const holidayMap = new Map();
-  allHolidays.forEach((h) => holidayMap.set(h.date, h));
+  [...apiTagged, ...estimatedTagged, ...googleTagged, ...customTagged].forEach((h) => holidayMap.set(h.date, h));
+  const allHolidays = Array.from(holidayMap.values()).sort((a, b) => a.date.localeCompare(b.date));
 
   const start = new Date(effectiveStartIso + "T12:00:00Z");
   const end = new Date(windowEndIso + "T12:00:00Z");
@@ -606,12 +664,13 @@ function renderPlan(result, country, year) {
   els.planCard.hidden = false;
 }
 
-const SOURCE_LABELS = { api: "Official", estimated: "Estimated", custom: "Added by you" };
+const SOURCE_LABELS = { api: "Official", google: "Google Calendar", estimated: "Estimated", custom: "Added by you" };
 
-function renderHolidays(allHolidays, regional, year, includeOptional, effectiveStartIso) {
+function renderHolidays(allHolidays, regional, year, includeOptional, effectiveStartIso, country) {
   const fromToday = effectiveStartIso > `${year}-01-01`;
   els.holidaysYearLabel.textContent = fromToday ? `(${fmtDateShort(effectiveStartIso)} onward)` : `(${year})`;
   els.holidaysTableBody.innerHTML = "";
+  els.googleCalendarIframe.src = `https://calendar.google.com/calendar/embed?src=en.${country.toLowerCase()}%23holiday%40group.v.calendar.google.com&mode=AGENDA`;
   allHolidays.forEach((h) => {
     const d = new Date(h.date + "T12:00:00Z");
     const tr = document.createElement("tr");

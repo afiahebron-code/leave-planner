@@ -311,6 +311,23 @@ code {
   border-radius: 4px;
 }
 
+.google-embed {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.google-embed summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.google-embed iframe {
+  margin-top: 10px;
+  border-radius: 10px;
+}
+
 /* Custom holidays */
 
 .custom-holiday-form {

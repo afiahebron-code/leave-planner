@@ -34,16 +34,29 @@ browser's `localStorage`. Nothing is sent to a server; there is no backend.
 
 The Nager.Date API tags many moving-date religious holidays — including most
 Islamic ones — as "Optional" rather than "Public," so the app includes those
-by default (toggle-able). On top of that:
+by default (toggle-able). On top of that, in priority order (later sources
+win on a same-date collision):
 
-- You can add any holiday the API is missing yourself (a confirmed Eid date,
-  a company day, a regional observance) — it's saved in your browser and
-  always counted.
-- There's an opt-in estimated Islamic calendar (Ramadan start, both Eids,
-  Islamic New Year, Ashura, Mawlid), computed from the tabular Hijri
-  calendar. It's a fixed arithmetic approximation, not a moon-sighting
-  authority, so treat it as accurate to within about ±1–2 days and confirm
-  locally before booking anything against it.
+1. **Nager.Date** — the base layer.
+2. **Estimated Islamic calendar** (opt-in) — Ramadan start, both Eids,
+   Islamic New Year, Ashura, Mawlid, computed from the tabular Hijri
+   calendar. It's a fixed arithmetic approximation, not a moon-sighting
+   authority, so treat it as accurate to within about ±1–2 days and confirm
+   locally before booking anything against it.
+3. **Google's public "Holidays in `<Country>`" calendar** (on by default) —
+   fetched as its `.ics` feed through a free public CORS relay
+   ([allorigins.win](https://allorigins.win)), since Google doesn't send the
+   CORS headers a browser needs to fetch it directly from another site.
+   Best-effort: if the relay or that country's calendar is ever unavailable,
+   it's silently skipped and the plan still works from the other sources.
+   The same calendar is also embedded directly (an iframe straight from
+   google.com) under the holiday table, purely as a visual way to
+   cross-check dates yourself — a page can't read data out of another
+   site's iframe, so that embed is display-only and isn't part of the data
+   pipeline above.
+4. **Holidays you add yourself** — for anything still missing (a confirmed
+   Eid date, a company day, a regional observance). Saved in your browser,
+   always counted.
 
 ## Running it locally
 

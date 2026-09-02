@@ -97,8 +97,14 @@
       </label>
 
       <label class="checkbox-line">
+        <input type="checkbox" id="use-google-calendar" checked />
+        Also check Google's public holiday calendar for this country
+        <span class="hint-inline">— fetched through a free public CORS relay since Google doesn't allow direct browser access. Best-effort: silently skipped if the relay or that country's calendar is unavailable.</span>
+      </label>
+
+      <label class="checkbox-line">
         <input type="checkbox" id="estimate-islamic" />
-        Also estimate Islamic holidays the data source is missing (Ramadan start, Eid al-Fitr, Eid al-Adha, Islamic New Year, Ashura, Mawlid)
+        Also estimate Islamic holidays still missing after that (Ramadan start, Eid al-Fitr, Eid al-Adha, Islamic New Year, Ashura, Mawlid)
         <span class="hint-inline">— calculated from the tabular Hijri calendar, accurate to within about ±1–2 days of the moon-sighting-confirmed date. Always double-check locally before booking.</span>
       </label>
 
@@ -145,6 +151,11 @@
       </table>
     </div>
     <p class="hint" id="regional-note" hidden></p>
+    <details class="google-embed">
+      <summary>See this country's calendar directly on Google Calendar</summary>
+      <p class="hint">This is Google's own widget, loaded straight from google.com — a way to cross-check the dates above yourself, not something this app reads data out of (a page can't read another site's content inside an iframe).</p>
+      <iframe id="google-calendar-iframe" title="Google Calendar — public holidays" style="border:0" width="100%" height="500" frameborder="0" scrolling="no" loading="lazy"></iframe>
+    </details>
   </section>
 
   <section class="card" id="calendar-card" hidden>
