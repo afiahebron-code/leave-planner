@@ -91,13 +91,38 @@
       </fieldset>
 
       <label class="checkbox-line">
-        <input type="checkbox" id="include-optional" />
-        Include optional / observance holidays (not just public &amp; bank holidays)
+        <input type="checkbox" id="include-optional" checked />
+        Include optional / observance holidays, not just official public &amp; bank ones
+        <span class="hint-inline">— many moving-date religious holidays (including most Islamic ones) are tagged this way in the data, so leave this on to see them.</span>
+      </label>
+
+      <label class="checkbox-line">
+        <input type="checkbox" id="estimate-islamic" />
+        Also estimate Islamic holidays the data source is missing (Ramadan start, Eid al-Fitr, Eid al-Adha, Islamic New Year, Ashura, Mawlid)
+        <span class="hint-inline">— calculated from the tabular Hijri calendar, accurate to within about ±1–2 days of the moon-sighting-confirmed date. Always double-check locally before booking.</span>
       </label>
 
       <button type="submit" class="primary">Plan my leave</button>
     </form>
     <p class="status" id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card" id="custom-holidays-card">
+    <h2>Add a holiday the data source is missing</h2>
+    <p class="hint">For anything not covered automatically — a specific Eid date once it's confirmed locally, a company day, a regional observance. These are always counted in your plan and saved in this browser.</p>
+    <form id="custom-holiday-form" class="custom-holiday-form">
+      <div class="field">
+        <label for="custom-holiday-date">Date</label>
+        <input type="date" id="custom-holiday-date" required />
+      </div>
+      <div class="field">
+        <label for="custom-holiday-name">Name</label>
+        <input type="text" id="custom-holiday-name" placeholder="e.g. Eid al-Fitr" maxlength="80" required />
+      </div>
+      <button type="submit" class="secondary">Add</button>
+    </form>
+    <ul class="chip-list" id="custom-holiday-list"></ul>
+    <p class="hint">Click "Plan my leave" (above) again after adding one, to fold it into your plan.</p>
   </section>
 
   <section class="card" id="summary-card" hidden>
@@ -106,7 +131,7 @@
   </section>
 
   <section class="card" id="plan-card" hidden>
-    <h2>3. Recommended leave days</h2>
+    <h2>3. Recommended leave days (whole year)</h2>
     <p class="hint">Ranked by how many days off you get per day of leave spent, then applied to your budget in that order.</p>
     <div id="plan-list"></div>
   </section>
@@ -115,11 +140,34 @@
     <h2>4. Public holidays <span id="holidays-year-label"></span></h2>
     <div class="table-wrap">
       <table id="holidays-table">
-        <thead><tr><th>Date</th><th>Day</th><th>Holiday</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Day</th><th>Holiday</th><th>Source</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
     <p class="hint" id="regional-note" hidden></p>
+  </section>
+
+  <section class="card" id="calendar-card" hidden>
+    <h2>5. Or pick the dates you're interested in</h2>
+    <p class="hint">Click a date to select it; shift-click another to select the whole range between them. Then we'll advise how to spend your remaining leave around weekends and holidays near those dates.</p>
+    <div class="calendar-legend">
+      <span><i class="swatch swatch-weekend"></i> Weekend</span>
+      <span><i class="swatch swatch-holiday"></i> Holiday</span>
+      <span><i class="swatch swatch-selected"></i> Selected</span>
+    </div>
+    <div id="calendar-grid" class="calendar-grid"></div>
+    <div class="calendar-controls">
+      <p class="hint" id="calendar-selection-summary">No dates selected yet.</p>
+      <div class="calendar-buttons">
+        <button type="button" class="secondary" id="calendar-clear">Clear selection</button>
+        <button type="button" class="primary" id="calendar-advise" disabled>Advise for these dates</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="advice-card" hidden>
+    <h2>Advice for your selected dates</h2>
+    <div id="advice-list"></div>
   </section>
 
 </main>

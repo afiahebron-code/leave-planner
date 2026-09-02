@@ -23,9 +23,27 @@ so you spend the fewest leave days for the longest breaks.
    limit.
 5. You can export any recommended break (or the whole plan) as an `.ics`
    file to drop into your calendar.
+6. You can also click dates directly on a calendar view (shift-click for a
+   range) and ask for advice scoped to just those dates, instead of the
+   whole-year plan.
 
 Everything runs client-side — your settings are saved only in your own
 browser's `localStorage`. Nothing is sent to a server; there is no backend.
+
+## Holiday coverage
+
+The Nager.Date API tags many moving-date religious holidays — including most
+Islamic ones — as "Optional" rather than "Public," so the app includes those
+by default (toggle-able). On top of that:
+
+- You can add any holiday the API is missing yourself (a confirmed Eid date,
+  a company day, a regional observance) — it's saved in your browser and
+  always counted.
+- There's an opt-in estimated Islamic calendar (Ramadan start, both Eids,
+  Islamic New Year, Ashura, Mawlid), computed from the tabular Hijri
+  calendar. It's a fixed arithmetic approximation, not a moon-sighting
+  authority, so treat it as accurate to within about ±1–2 days and confirm
+  locally before booking anything against it.
 
 ## Running it locally
 
